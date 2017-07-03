@@ -1,3 +1,4 @@
+
 import unittest
 try:
     from collections import OrderedDict
@@ -40,6 +41,47 @@ class AttributeMapper():
     def __dir__(self):
         return self.data.keys()
 
+class CaseInsensitiveDict(OrderedDict):
+    """
+    This is an ordered dictionary which ignores the letter case of the
+    keys given (if the respective key is a string).
+
+    Many thanks to user m000 who answered
+    https://stackoverflow.com/questions/2082152/case-insensitive-dictionary
+    so helpfully.
+    """
+    
+    @classmethod
+    def _k(cls, key):
+        return key.lower() if isinstance(key, str) else key
+
+    def __init__(self, *args, **kwargs):
+        super(CaseInsensitiveDict, self).__init__(*args, **kwargs)
+        self._convert_keys()
+    def __getitem__(self, key):
+        return super(CaseInsensitiveDict, self).__getitem__(self.__class__._k(key))
+    def __setitem__(self, key, value):
+        super(CaseInsensitiveDict, self).__setitem__(self.__class__._k(key), value)
+    def __delitem__(self, key):
+        return super(CaseInsensitiveDict, self).__delitem__(self.__class__._k(key))
+    def __contains__(self, key):
+        return super(CaseInsensitiveDict, self).__contains__(self.__class__._k(key))
+    def has_key(self, key):
+        return super(CaseInsensitiveDict, self).has_key(self.__class__._k(key))
+    def pop(self, key, *args, **kwargs):
+        return super(CaseInsensitiveDict, self).pop(self.__class__._k(key), *args, **kwargs)
+    def get(self, key, *args, **kwargs):
+        return super(CaseInsensitiveDict, self).get(self.__class__._k(key), *args, **kwargs)
+    def setdefault(self, key, *args, **kwargs):
+        return super(CaseInsensitiveDict, self).setdefault(self.__class__._k(key), *args, **kwargs)
+    def update(self, E={}, **F):
+        super(CaseInsensitiveDict, self).update(self.__class__(E))
+        super(CaseInsensitiveDict, self).update(self.__class__(**F))
+    def _convert_keys(self):
+        for k in list(self.keys()):
+            v = super(CaseInsensitiveDict, self).pop(k)
+            self.__setitem__(k, v)
+
 class Namelist():
     """
     Parses namelist files in Fortran 90 format, recognised groups are
@@ -47,118 +89,137 @@ class Namelist():
     """
 
     def __init__(self, input_str):
-        self.groups = OrderedDict()
+        self.groups = CaseInsensitiveDict()
 
-        group_re = re.compile(r'&([^&/]+)/', re.DOTALL)  # allow blocks to span multiple lines
-        array_re = re.compile(r'(\w+)\((\d+)\)')
+        namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')
+        namelist_end_line_re = re.compile(r'^\s*/\s*$')
+
+        # a pattern matching an array of stuff
+        a_number = r'[0-9\.\+\-eE]+'
+        #array_re = re.compile(r'(?:\s*([^,](?:\'[^\']*\')(?:\(\s*'+a_number+'\s*,\s*'+a_number+'\s*\))*)\s,)*')
+
+        # a comma-separated list, of elements which either do not
+        # contain a comma, or may contain commas inside strings, or
+        # may contain commas inside paretheses.
+        # At the end of the line, the comma is optional.
+        # FIXME deal with abbrev. lists!
+        # FIXME strings containing parentheses will cause problems with this expression
+        array_re = re.compile(r"([\w.+-]+|\s*\'[^\']*\'\s*|\s[(][^),]+,[^),]+[)]\s*)(?:,|,?\s*$)")
         string_re = re.compile(r"\'\s*\w[^']*\'")
         self._complex_re = re.compile(r'^\((\d+.?\d*),(\d+.?\d*)\)$')
 
-        # remove all comments, since they may have forward-slashes
-        # TODO: store position of comments so that they can be re-inserted when
-        # we eventually save
-        filtered_lines = []
+        # a pattern to match the non-comment part of a line. This
+        # should be able to deal with ! signs inside strings.
+        comment_re = re.compile(r"((?:[^\'!]*(?:\'[^\']*\'))*)!.*")
+
+        # match notation for Fortran logicals in namelist files:
+        self.logical_true_re = re.compile(r"[^tTfF\']*[tT].*")
+        self.logical_false_re = re.compile(r"[^tTfF\']*[fF].*")
+
+        # match abbreviated lists of identical items, like
+        # 509*-1.0000000000000000
+        # 253*0
+        # NEO_EQUIL_PARSE_SP_SEQ=          1,          2, 2*3          , 28*-1
+        # 60*"          "
+        self.abbrev_list_re = re.compile(r"([0-9]+)\*(.+)")
+
+        # commas at the end of lines seem to be optional
+        keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
+
+        group = CaseInsensitiveDict()
+        current_group = None
         for line in input_str.split('\n'):
-            if line.strip().startswith('!'):
+            # remove comments
+            line_without_comment = comment_re.sub(r"\1",line)
+            # remove whitespaces
+            line_without_comment = line_without_comment.strip()
+            if len(line_without_comment) == 0:
                 continue
-            else:
-                filtered_lines.append(line)
 
-        group_blocks = re.findall(group_re, "\n".join(filtered_lines))
-
-        for group_block in group_blocks:
-            block_lines = group_block.split('\n')
-            group_name = block_lines.pop(0).strip()
-
-            group = {}
-
-            for line in block_lines:
-                line = line.strip()
-                if line == "":
+          
+            m = namelist_start_line_re.match(line_without_comment)
+            if(m):
+                if(current_group is None):
+                    current_group = m.group(1)
+                    group = CaseInsensitiveDict()
                     continue
-                if line.startswith('!'):
-                    continue
-
-                # commas at the end of lines seem to be optional
-                if line.endswith(','):
-                    line = line[:-1]
-
-                k, v = line.split('=')
-                variable_name = k.strip()
-                variable_value = v.strip()
-
-                variable_name_groups = re.findall(array_re, k)
-
-                variable_index = None
-                if len(variable_name_groups) == 1:
-                    variable_name, variable_index = variable_name_groups[0]
-                    variable_index = int(variable_index)-1 # python indexing starts at 0
-
-                try:
-                    parsed_value = self._parse_value(variable_value)
-
-                    if variable_index is None:
-                        group[variable_name] = parsed_value
-                    else:
-                        if not variable_name in group:
-                            group[variable_name] = {'_is_list': True}
-                        group[variable_name][variable_index] = parsed_value
-
-                except NoSingleValueFoundException as e:
-                    # see we have several values inlined
-                    if variable_value.count("'") in [0, 2]:
-                        variable_arr_entries = variable_value.split()
-                    else:
-                        # we need to be more careful with lines with escaped
-                        # strings, since they might contained spaces
-                        matches = re.findall(string_re, variable_value)
-                        variable_arr_entries = [s.strip() for s in matches]
-
-
-                    for variable_index, inline_value in enumerate(variable_arr_entries):
-                        parsed_value = self._parse_value(inline_value)
-
-                        if variable_index is None:
-                            group[variable_name] = parsed_value
-                        else:
-                            if not variable_name in group:
-                                group[variable_name] = {'_is_list': True}
-                            group[variable_name][variable_index] = parsed_value
-
-            self.groups[group_name] = group
-
-            self._check_lists()
-
-    def _parse_value(self, variable_value):
-        """
-        Tries to parse a single value, raises an exception if no single value is matched
-        """
-        try:
-            parsed_value = int(variable_value)
-        except ValueError:
-            try:
-                parsed_value = float(variable_value)
-            except ValueError:
-                # check for complex number
-                complex_values = re.findall(self._complex_re, variable_value)
-                if len(complex_values) == 1:
-                    a, b = complex_values[0]
-                    parsed_value = complex(float(a),float(b))
-                elif variable_value in ['.true.', 'T']:
-                    # check for a boolean
-                    parsed_value = True
-                elif variable_value in ['.false.', 'F']:
-                    parsed_value = False
                 else:
-                    # see if we have an escaped string
-                    if variable_value.startswith("'") and variable_value.endswith("'") and variable_value.count("'") == 2:
-                        parsed_value = variable_value[1:-1]
-                    elif variable_value.startswith('"') and variable_value.endswith('"') and variable_value.count('"') == 2:
-                        parsed_value = variable_value[1:-1]
-                    else:
-                        raise NoSingleValueFoundException(variable_value)
+                    raise SyntaxError('Namelist %s starts, but namelist %s is not yet complete.' % (m.group(1),current_group))
 
-        return parsed_value
+            m = namelist_end_line_re.match(line_without_comment)
+            if(m):
+                if(current_group is not None):
+                    current_group = None
+                    continue
+                else:
+                    raise SyntaxError('End of namelist encountered, but there is no corresponding open namelist.')
+                    
+            # other lines: key = value, or a continuation line
+            m = keyval_line_re.match(line_without_comment)
+            if(m):
+                if(current_group is not None):
+                    variable_name = m.group(1)
+                    variable_value = m.group(2)
+
+                    print(variable_name)
+                    print(variable_value)
+                    # parse the array with self-crafted regex
+                    parsed_list = array_re.findall(variable_value)
+                    print(parsed_list)
+                    parsed_list = [self._parse_value(elem) for elem in parsed_list]
+
+                    # if it wasnt for special notations like .false. or 60*'' , one could
+                    # simply use a parser from the python standard library for the right
+                    # hand side as a whole:
+                    #parsed_value = ast.literal_eval(variable_value)
+                    try:
+                        if(len(parsed_list) == 1):
+                            group[variable_name] = parsed_list[0]
+                        else:
+                            group[variable_name] = parsed_list
+                    except TypeError:
+                        group[variable_name] = parsed_list
+                    
+                else:
+                    raise SyntaxError('Key %s encountered, but there is no enclosing namelist' % variable_name)
+
+            self.groups[current_group] = group
+
+            #self._check_lists()
+
+    def _parse_value(self, variable_value_str):
+        """
+        Tries to parse a single value, raises a SyntaxError if not successful.
+        """
+        import ast
+        try:
+            parsed_value = ast.literal_eval(variable_value_str.strip())
+        except (ValueError, SyntaxError):
+            print(variable_value_str.strip())
+
+            abbrev_list_match = self.abbrev_list_re.match(variable_value_str)
+            if(abbrev_list_match):
+                parsed_value = int(abbrev_list_match.group(1)) * [self._parse_value(abbrev_list_match.group(2))]
+            elif(self.logical_true_re.match(variable_value_str)):
+                parsed_value = True
+            elif(self.logical_false_re.match(variable_value_str)):
+                parsed_value = False
+            else:
+                raise SyntaxError('Right hand side expression could not be parsed. The string is: %s' % (variable_value_str))
+
+                #FIXME distinguish complex scalar and a list of 2 reals
+                #FIXME rstrip strings, because this is what fortran does
+        try:
+            if(len(parsed_value) == 1):
+                # one gets a list of length 1 if the line ends with a
+                # comma, because (4,) for python is a tuple with one
+                # element, and (4) is just the scalar 4.
+                return parsed_value[0]
+            else:
+                return parsed_value
+        except TypeError:
+            return parsed_value
+            
 
     def _check_lists(self):
         for group in self.groups.values():
@@ -412,7 +473,7 @@ class ParsingTests(unittest.TestCase):
 class ParsingTests(unittest.TestCase):
     def test_single_value(self):
         input_str = """&CCFMSIM_SETUP
-CCFMrad=800.
+CCFMrad=800.000000
 /"""
         namelist = Namelist(input_str)
 
@@ -420,10 +481,10 @@ CCFMrad=800.
 
     def test_multigroup(self):
         input_str = """&CCFMSIM_SETUP
-CCFMrad=800.
+CCFMrad=800.000000
 /
 &GROUP2
-R=500.
+R=500.000000
 /"""
         namelist = Namelist(input_str)
 
@@ -447,7 +508,7 @@ des_trac_picture(4)='graupel'
 
     def test_inline_array(self):
         input_str = """&AADATA
-AACOMPLEX= (3.,4.) (3.,4.) (5.,6.) (7.,7.)
+AACOMPLEX= (3.000000,4.000000) (3.000000,4.000000) (5.000000,6.000000) (7.000000,7.000000)
 /"""
 
         namelist = Namelist(input_str)
