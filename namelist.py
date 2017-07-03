@@ -452,8 +452,8 @@ AACOMPLEX= (3.,4.) (3.,4.) (5.,6.) (7.,7.)
 
         namelist = Namelist(input_str)
 
-        print input_str
-        print namelist.dump()
+        print(input_str)
+        print(namelist.dump())
 
         self.assertEqual(namelist.dump(), input_str)
 
