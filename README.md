@@ -1,14 +1,15 @@
-# Fortran namelist files in Python
+# A Python module to parse Fortran namelist files
 
 Read in a namelist file:
 ```
 from namelist_python import read_namelist_file
 namelist = read_namelist_file('SIM_CONFIG.nl')
+namelist.groups['foo']['bar']
 ```
 
-`namelist` is an instance of `namelist_python.Namelist` and all groups are
-stored in the attribute `groups` with each variable in a nested dictionary
-structure (using `OrderedDict` so that the order will be remembered).
+This creates an instance of `namelist_python.Namelist` whose attribute
+`groups` holds the data in a nested ordered case-insensitive dictionary
+structure.
 
 Write a `Namelist` object back to a file:
 ```
