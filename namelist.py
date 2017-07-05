@@ -3,7 +3,7 @@ import unittest
 try:
     from collections import OrderedDict
 except ImportError:
-    from utils import OrderedDict
+    from .utils import OrderedDict
 
 import re
 
@@ -104,7 +104,7 @@ class Namelist():
 
     """
 
-    def __init__(self, input_str):
+    def __init__(self, input_str=""):
         self.groups = CaseInsensitiveDict()
 
         namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')

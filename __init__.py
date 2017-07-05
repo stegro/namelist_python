@@ -1,1 +1,3 @@
-from namelist import read_namelist_file, Namelist, AttributeMapper
+
+__all__ = ['namelist']
+from .namelist import *
