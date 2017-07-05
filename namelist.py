@@ -84,12 +84,24 @@ class CaseInsensitiveDict(OrderedDict):
 
 class Namelist():
     """
-    Parses namelist files in Fortran 90 format, recognised groups are
-    available through 'groups' attribute.
+    Parses namelist files in Fortran 90 format.
+
+    Note that while Fortran speaks of "namelists", this module uses
+    the term "group" to refer to individual namelists within a file..
+
+    After parsing, recognised groups are accessible through
+    the 'groups' attribute.
+
     """
 
-    def __init__(self, input_str):
+    def __init__(self, input_str, dup_group_format="%s%02d"):
+        """
+
+        The optional argument dup_group_format is the format to be used if multiple namelists have the same name. 
+        
+        """
         self.groups = CaseInsensitiveDict()
+        self.dup_group_format = dup_group_format
 
         namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')
         namelist_end_line_re = re.compile(r'^\s*/\s*$')
@@ -127,6 +139,7 @@ class Namelist():
         keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
 
         group = CaseInsensitiveDict()
+        list_of_groups = []
         current_group = None
         for line in input_str.split('\n'):
             # remove comments
@@ -136,11 +149,26 @@ class Namelist():
             if len(line_without_comment) == 0:
                 continue
 
-          
             m = namelist_start_line_re.match(line_without_comment)
             if(m):
                 if(current_group is None):
-                    current_group = m.group(1)
+                    if(m.group(1) in list_of_groups):
+                        if(m.group(1) in self.groups):
+                            n = list_of_groups.count(m.group(1))
+                            groupname_with_counter = self.dup_group_format % (m.group(1), n)
+                            if(groupname_with_counter not in self.groups):
+                                self.groups[groupname_with_counter] = self.groups[m.group(1)]
+                                self.groups.pop(m.group(1))
+                            else:
+                                raise ValueError("Could not give namelist %s a counter, since namelist %s exists already." % (m.group(1), groupname_with_counter))
+
+                        # increment the counter for the new one
+                        n = list_of_groups.count(m.group(1)) + 1
+                        groupname_with_counter = self.dup_group_format % (m.group(1), n)
+                        current_group = groupname_with_counter
+                    else:
+                        current_group = m.group(1)
+                    list_of_groups.append(m.group(1))
                     group = CaseInsensitiveDict()
                     continue
                 else:
@@ -161,11 +189,8 @@ class Namelist():
                     variable_name = m.group(1)
                     variable_value = m.group(2)
 
-                    print(variable_name)
-                    print(variable_value)
                     # parse the array with self-crafted regex
                     parsed_list = array_re.findall(variable_value)
-                    print(parsed_list)
                     parsed_list = [self._parse_value(elem) for elem in parsed_list]
 
                     # if it wasnt for special notations like .false. or 60*'' , one could
@@ -195,7 +220,6 @@ class Namelist():
         try:
             parsed_value = ast.literal_eval(variable_value_str.strip())
         except (ValueError, SyntaxError):
-            print(variable_value_str.strip())
 
             abbrev_list_match = self.abbrev_list_re.match(variable_value_str)
             if(abbrev_list_match):
