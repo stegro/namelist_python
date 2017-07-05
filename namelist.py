@@ -127,7 +127,7 @@ class Namelist():
         # FIXME strings containing parentheses will cause problems with this expression
         array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
         string_re = re.compile(r"\'\s*\w[^']*\'")
-        self._complex_re = re.compile(r'^\((\d+.?\d*),(\d+.?\d*)\)$')
+        self._complex_re = re.compile(r'\s*\([^,]+,[^,]+\)\s*')
 
         # a pattern to match the non-comment part of a line. This
         # should be able to deal with ! signs inside strings.
@@ -224,6 +224,16 @@ class Namelist():
         import ast
         try:
             parsed_value = ast.literal_eval(variable_value_str.strip())
+
+            # use a regex to check if value is a complex number: (1.2 , 3.4)
+            # this is needed, because literal_eval parses both "(1.2 , 3.4)"
+            # and "1.2 , 3.4" into a tupel with two elements and then one
+            # cannot distinguish between a list of two numbers and a single
+            # complex number. This makes a difference when it comes to
+            # dumping, though.
+            if(self._complex_re.match(variable_value_str)):
+                parsed_value = complex(parsed_value[0], parsed_value[1])
+
             try:
                 if(isinstance(parsed_value, basestring)):
                     # Fortran strings end with blanks
@@ -285,9 +295,11 @@ class Namelist():
         elif isinstance(value, basestring):
             return "'%s'" % value
         elif isinstance(value, complex):
-            return "(%s,%s)" % (self._format_value(value.real), self._format_value(value.imag))
+            complex_format = "("+float_format+","+float_format+")"
+            return complex_format % (value.real,value.imag)
         else:
-            raise Exception("Variable type not understood: %s" % type(value))
+            print(value)
+            raise Exception("Variable type not understood: type %s" % type(value))
 
     # create a read-only propery by using property() as a
     # decorator. This function is then the getter function for the
