@@ -125,7 +125,7 @@ class Namelist():
         # At the end of the line, the comma is optional.
         # FIXME deal with abbrev. lists. 
         # FIXME strings containing parentheses will cause problems with this expression
-        array_re = re.compile(r"(\s*(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
+        array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
         string_re = re.compile(r"\'\s*\w[^']*\'")
         self._complex_re = re.compile(r'^\((\d+.?\d*),(\d+.?\d*)\)$')
 
@@ -142,7 +142,7 @@ class Namelist():
         # 253*0
         # NEO_EQUIL_PARSE_SP_SEQ=          1,          2, 2*3          , 28*-1
         # 60*"          "
-        self.abbrev_list_re = re.compile(r"([0-9]+)\*(.+)")
+        self.abbrev_list_re = re.compile(r"\s*([0-9]+)\*(.+)\s*")
 
         # commas at the end of lines seem to be optional
         keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
@@ -246,7 +246,6 @@ class Namelist():
                 raise SyntaxError('Right hand side expression could not be parsed. The string is: %s' % (variable_value_str))
 
                 #FIXME distinguish complex scalar and a list of 2 reals
-                #FIXME rstrip strings, because this is what fortran does
         try:
             if(len(parsed_value) == 1):
                 # one gets a list of length 1 if the line ends with a
