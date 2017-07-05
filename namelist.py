@@ -7,16 +7,16 @@ except ImportError:
 
 import re
 
-class NoSingleValueFoundException(Exception):
-    pass
-
 def read_namelist_file(filename):
     return Namelist(open(filename, 'r').read())
 
+# trick for py2/3 compatibility
+if 'basestring' not in globals():
+   basestring = str
 
 class AttributeMapper():
     """
-    Simple mapper to access dictionary items as attributes
+    Simple mapper to access dictionary items as attributes.
     """
 
     def __init__(self, obj):
@@ -53,7 +53,7 @@ class CaseInsensitiveDict(OrderedDict):
     
     @classmethod
     def _k(cls, key):
-        return key.lower() if isinstance(key, str) else key
+        return key.lower() if isinstance(key, basestring) else key
 
     def __init__(self, *args, **kwargs):
         super(CaseInsensitiveDict, self).__init__(*args, **kwargs)
@@ -89,8 +89,18 @@ class Namelist():
     Note that while Fortran speaks of "namelists", this module uses
     the term "group" to refer to individual namelists within a file..
 
-    After parsing, recognised groups are accessible through
-    the 'groups' attribute.
+    After parsing,
+
+    nlist = namelist_python.read_namelist_file('input.dat')
+
+    recognised groups are accessible through
+    the 'groups' attribute (which is a case-insensitive ordered dictionary)
+
+    nlist.groups['mode']['chin']
+
+    or the data attribute
+
+    nlist.data.mode.chin
 
     """
 
@@ -108,15 +118,14 @@ class Namelist():
 
         # a pattern matching an array of stuff
         a_number = r'[0-9\.\+\-eE]+'
-        #array_re = re.compile(r'(?:\s*([^,](?:\'[^\']*\')(?:\(\s*'+a_number+'\s*,\s*'+a_number+'\s*\))*)\s,)*')
 
         # a comma-separated list, of elements which either do not
         # contain a comma, or may contain commas inside strings, or
         # may contain commas inside paretheses.
         # At the end of the line, the comma is optional.
-        # FIXME deal with abbrev. lists!
+        # FIXME deal with abbrev. lists. 
         # FIXME strings containing parentheses will cause problems with this expression
-        array_re = re.compile(r"([\w.+-]+|\s*\'[^\']*\'\s*|\s[(][^),]+,[^),]+[)]\s*)(?:,|,?\s*$)")
+        array_re = re.compile(r"(\s*(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
         string_re = re.compile(r"\'\s*\w[^']*\'")
         self._complex_re = re.compile(r'^\((\d+.?\d*),(\d+.?\d*)\)$')
 
@@ -138,14 +147,12 @@ class Namelist():
         # commas at the end of lines seem to be optional
         keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
 
-        group = CaseInsensitiveDict()
         list_of_groups = []
         current_group = None
         for line in input_str.split('\n'):
-            # remove comments
-            line_without_comment = comment_re.sub(r"\1",line)
-            # remove whitespaces
-            line_without_comment = line_without_comment.strip()
+            # remove comments and whitespaces
+            line_without_comment = comment_re.sub(r"\1",line).strip()
+
             if len(line_without_comment) == 0:
                 continue
 
@@ -169,7 +176,7 @@ class Namelist():
                     else:
                         current_group = m.group(1)
                     list_of_groups.append(m.group(1))
-                    group = CaseInsensitiveDict()
+                    self.groups[current_group] = CaseInsensitiveDict()
                     continue
                 else:
                     raise SyntaxError('Namelist %s starts, but namelist %s is not yet complete.' % (m.group(1),current_group))
@@ -199,18 +206,16 @@ class Namelist():
                     #parsed_value = ast.literal_eval(variable_value)
                     try:
                         if(len(parsed_list) == 1):
-                            group[variable_name] = parsed_list[0]
+                            self.groups[current_group][variable_name] = parsed_list[0]
                         else:
-                            group[variable_name] = parsed_list
+                            self.groups[current_group][variable_name] = parsed_list
                     except TypeError:
-                        group[variable_name] = parsed_list
+                        self.groups[current_group][variable_name] = parsed_list
                     
                 else:
                     raise SyntaxError('Key %s encountered, but there is no enclosing namelist' % variable_name)
-
-            self.groups[current_group] = group
-
-            #self._check_lists()
+            else:
+                raise SyntaxError('this line could not be parsed, please notify the author or contribute a patch: %s' % line_without_comment)
 
     def _parse_value(self, variable_value_str):
         """
@@ -219,6 +224,15 @@ class Namelist():
         import ast
         try:
             parsed_value = ast.literal_eval(variable_value_str.strip())
+            try:
+                if(isinstance(parsed_value, basestring)):
+                    # Fortran strings end with blanks
+                    parsed_value = parsed_value.rstrip()
+                else:
+                    parsed_value = [elem.rstrip() for elem in parsed_value]
+            except Exception as err:
+                # value is probably just not iterable
+                pass
         except (ValueError, SyntaxError):
 
             abbrev_list_match = self.abbrev_list_re.match(variable_value_str)
@@ -245,56 +259,40 @@ class Namelist():
             return parsed_value
             
 
-    def _check_lists(self):
-        for group in self.groups.values():
-            for variable_name, variable_values in group.items():
-                if isinstance(variable_values, dict):
-                    if '_is_list' in variable_values and variable_values['_is_list']:
-                        variable_data = variable_values
-                        del(variable_data['_is_list'])
-
-                        num_entries = len(variable_data.keys())
-                        variable_list = [None]*num_entries
-
-                        for i, value in variable_data.items():
-                            if i >= num_entries:
-                                raise Exception("The variable '%s' has an array index assignment that is inconsistent with the number of list values" % variable)
-                            else:
-                                variable_list[i] = value
-
-                        group[variable_name] = variable_list
-
-    def dump(self, array_inline=True):
+    def dump(self, array_inline=True, float_format="%13.5e"):
         lines = []
         for group_name, group_variables in self.groups.items():
             lines.append("&%s" % group_name)
             for variable_name, variable_value in group_variables.items():
                 if isinstance(variable_value, list):
                     if array_inline:
-                        lines.append("%s= %s" % (variable_name, " ".join([self._format_value(v) for v in variable_value])))
+                        lines.append("%s= %s" % (variable_name, " ".join([self._format_value(v, float_format) for v in variable_value])))
                     else:
                         for n, v in enumerate(variable_value):
-                            lines.append("%s(%d)=%s" % (variable_name, n+1, self._format_value(v)))
+                            lines.append("%s(%d)=%s" % (variable_name, n+1, self._format_value(v, float_format)))
                 else:
-                    lines.append("%s=%s" % (variable_name, self._format_value(variable_value)))
+                    lines.append("%s=%s" % (variable_name, self._format_value(variable_value, float_format)))
             lines.append("/")
 
         return "\n".join(lines)
 
-    def _format_value(self, value):
+    def _format_value(self, value, float_format):
         if isinstance(value, bool):
             return value and '.true.' or '.false.'
         elif isinstance(value, int):
             return "%d" % value
         elif isinstance(value, float):
-            return "%f" % value
-        elif isinstance(value, str):
+            return float_format % value
+        elif isinstance(value, basestring):
             return "'%s'" % value
         elif isinstance(value, complex):
             return "(%s,%s)" % (self._format_value(value.real), self._format_value(value.imag))
         else:
             raise Exception("Variable type not understood: %s" % type(value))
 
+    # create a read-only propery by using property() as a
+    # decorator. This function is then the getter function for the
+    # .data attribute:
     @property
     def data(self):
         return AttributeMapper(self.groups)
