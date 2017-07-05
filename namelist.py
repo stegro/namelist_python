@@ -104,14 +104,8 @@ class Namelist():
 
     """
 
-    def __init__(self, input_str, dup_group_format="%s%02d"):
-        """
-
-        The optional argument dup_group_format is the format to be used if multiple namelists have the same name. 
-        
-        """
+    def __init__(self, input_str):
         self.groups = CaseInsensitiveDict()
-        self.dup_group_format = dup_group_format
 
         namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')
         # FIXME the end of the namelist does not necessarily have to
