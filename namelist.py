@@ -199,6 +199,7 @@ class Namelist():
                     # parse the array with self-crafted regex
                     parsed_list = array_re.findall(variable_value)
                     parsed_list = [self._parse_value(elem) for elem in parsed_list]
+                    parsed_list = self._flatten(parsed_list)
 
                     # if it wasnt for special notations like .false. or 60*'' , one could
                     # simply use a parser from the python standard library for the right
@@ -241,7 +242,7 @@ class Namelist():
                 else:
                     parsed_value = [elem.rstrip() for elem in parsed_value]
             except Exception as err:
-                # value is probably just not iterable
+                # value is probably just not iterable, or is an iterable of numbers
                 pass
         except (ValueError, SyntaxError):
 
@@ -285,6 +286,15 @@ class Namelist():
 
         return "\n".join(lines)
 
+    def _flatten(self, x):
+        result = []
+        for elem in x:
+            if hasattr(elem, "__iter__") and not isinstance(elem, basestring):
+                result.extend(self._flatten(elem))
+            else:
+                result.append(elem)
+        return result
+    
     def _format_value(self, value, float_format):
         if isinstance(value, bool):
             return value and '.true.' or '.false.'
