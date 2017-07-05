@@ -147,7 +147,6 @@ class Namelist():
         # commas at the end of lines seem to be optional
         keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
 
-        list_of_groups = []
         current_group = None
         for line in input_str.split('\n'):
             # remove comments and whitespaces
@@ -158,28 +157,22 @@ class Namelist():
 
             m = namelist_start_line_re.match(line_without_comment)
             if(m):
+                found_group = m.group(1).lower()
                 if(current_group is None):
-                    if(m.group(1) in list_of_groups):
-                        if(m.group(1) in self.groups):
-                            n = list_of_groups.count(m.group(1))
-                            groupname_with_counter = self.dup_group_format % (m.group(1), n)
-                            if(groupname_with_counter not in self.groups):
-                                self.groups[groupname_with_counter] = self.groups[m.group(1)]
-                                self.groups.pop(m.group(1))
-                            else:
-                                raise ValueError("Could not give namelist %s a counter, since namelist %s exists already." % (m.group(1), groupname_with_counter))
+                    if(found_group in self.groups):
+                        if(not isinstance(self.groups[found_group],list)):
+                            self.groups[found_group] = [self.groups[found_group]]
 
-                        # increment the counter for the new one
-                        n = list_of_groups.count(m.group(1)) + 1
-                        groupname_with_counter = self.dup_group_format % (m.group(1), n)
-                        current_group = groupname_with_counter
+                        self.groups[found_group].append(CaseInsensitiveDict())
+                        current_group = self.groups[found_group][-1]
+                        
                     else:
-                        current_group = m.group(1)
-                    list_of_groups.append(m.group(1))
-                    self.groups[current_group] = CaseInsensitiveDict()
+                        self.groups[found_group] = CaseInsensitiveDict()
+                        current_group = self.groups[found_group]
+                        
                     continue
                 else:
-                    raise SyntaxError('Namelist %s starts, but namelist %s is not yet complete.' % (m.group(1),current_group))
+                    raise SyntaxError('Namelist %s starts, but namelist %s is not yet complete.' % (found_group,current_group))
 
             m = namelist_end_line_re.match(line_without_comment)
             if(m):
@@ -207,11 +200,11 @@ class Namelist():
                     #parsed_value = ast.literal_eval(variable_value)
                     try:
                         if(len(parsed_list) == 1):
-                            self.groups[current_group][variable_name] = parsed_list[0]
+                            current_group[variable_name] = parsed_list[0]
                         else:
-                            self.groups[current_group][variable_name] = parsed_list
+                            current_group[variable_name] = parsed_list
                     except TypeError:
-                        self.groups[current_group][variable_name] = parsed_list
+                        current_group[variable_name] = parsed_list
                     
                 else:
                     raise SyntaxError('Key %s encountered, but there is no enclosing namelist' % variable_name)
@@ -271,19 +264,22 @@ class Namelist():
 
     def dump(self, array_inline=True, float_format="%13.5e"):
         lines = []
-        for group_name, group_variables in self.groups.items():
-            lines.append("&%s" % group_name)
-            for variable_name, variable_value in group_variables.items():
-                if(isinstance(variable_value, list)):
-                    if array_inline:
-                        lines.append("%s= %s" % (variable_name, ", ".join([self._format_value(elem, float_format) for elem in variable_value])))
+        for group_name, group_content in self.groups.items():
+
+            group_list = isinstance(group_content,list) and group_content or [group_content]
+            for group in group_list:
+                lines.append("&%s" % group_name.upper())
+                for variable_name, variable_value in group.items():
+                    if(isinstance(variable_value, list)):
+                        if array_inline:
+                            lines.append("%s= %s" % (variable_name, ", ".join([self._format_value(elem, float_format) for elem in variable_value])))
+                        else:
+                            for n, v in enumerate(variable_value):
+                                lines.append("%s(%d)= %s" % (variable_name, n+1, self._format_value(v, float_format)))
                     else:
-                        for n, v in enumerate(variable_value):
-                            lines.append("%s(%d)= %s" % (variable_name, n+1, self._format_value(v, float_format)))
-                else:
-                    lines.append("%s=%s" % (variable_name, self._format_value(variable_value, float_format)))
-            lines.append("/")
-            lines.append("")
+                        lines.append("%s=%s" % (variable_name, self._format_value(variable_value, float_format)))
+                lines.append("/")
+                lines.append("")
 
         return "\n".join(lines)
 
