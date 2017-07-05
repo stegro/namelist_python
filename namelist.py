@@ -114,6 +114,8 @@ class Namelist():
         self.dup_group_format = dup_group_format
 
         namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')
+        # FIXME the end of the namelist does not necessarily have to
+        # be in a separate line
         namelist_end_line_re = re.compile(r'^\s*/\s*$')
 
         # a pattern matching an array of stuff
@@ -123,10 +125,8 @@ class Namelist():
         # contain a comma, or may contain commas inside strings, or
         # may contain commas inside paretheses.
         # At the end of the line, the comma is optional.
-        # FIXME deal with abbrev. lists. 
         # FIXME strings containing parentheses will cause problems with this expression
         array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
-        string_re = re.compile(r"\'\s*\w[^']*\'")
         self._complex_re = re.compile(r'\s*\([^,]+,[^,]+\)\s*')
 
         # a pattern to match the non-comment part of a line. This
@@ -274,15 +274,16 @@ class Namelist():
         for group_name, group_variables in self.groups.items():
             lines.append("&%s" % group_name)
             for variable_name, variable_value in group_variables.items():
-                if isinstance(variable_value, list):
+                if(isinstance(variable_value, list)):
                     if array_inline:
-                        lines.append("%s= %s" % (variable_name, " ".join([self._format_value(v, float_format) for v in variable_value])))
+                        lines.append("%s= %s" % (variable_name, ", ".join([self._format_value(elem, float_format) for elem in variable_value])))
                     else:
                         for n, v in enumerate(variable_value):
-                            lines.append("%s(%d)=%s" % (variable_name, n+1, self._format_value(v, float_format)))
+                            lines.append("%s(%d)= %s" % (variable_name, n+1, self._format_value(v, float_format)))
                 else:
                     lines.append("%s=%s" % (variable_name, self._format_value(variable_value, float_format)))
             lines.append("/")
+            lines.append("")
 
         return "\n".join(lines)
 
