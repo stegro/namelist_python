@@ -104,8 +104,9 @@ class Namelist():
 
     """
 
-    def __init__(self, input_str=""):
+    def __init__(self, input_str="", parse_strings_unqoted=True):
         self.groups = CaseInsensitiveDict()
+        self.parse_strings_unqoted = parse_strings_unqoted
 
         namelist_start_line_re = re.compile(r'^\s*&(\w+)\s*$')
         # FIXME the end of the namelist does not necessarily have to
@@ -120,7 +121,7 @@ class Namelist():
         # may contain commas inside paretheses.
         # At the end of the line, the comma is optional.
         # FIXME strings containing parentheses will cause problems with this expression
-        array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[\w.+-]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
+        array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[^,(\'\"]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
         self._complex_re = re.compile(r'\s*\([^,]+,[^,]+\)\s*')
 
         # a pattern to match the non-comment part of a line. This
@@ -139,7 +140,7 @@ class Namelist():
         self.abbrev_list_re = re.compile(r"\s*([0-9]+)\*(.+)\s*")
 
         # commas at the end of lines seem to be optional
-        keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.+),?")
+        keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.*),?")
 
         current_group = None
         for line in input_str.split('\n'):
@@ -175,7 +176,7 @@ class Namelist():
                     continue
                 else:
                     raise SyntaxError('End of namelist encountered, but there is no corresponding open namelist.')
-                    
+
             # other lines: key = value, or a continuation line
             m = keyval_line_re.match(line_without_comment)
             if(m):
@@ -203,7 +204,9 @@ class Namelist():
                 else:
                     raise SyntaxError('Key %s encountered, but there is no enclosing namelist' % variable_name)
             else:
-                raise SyntaxError('this line could not be parsed, please notify the author or contribute a patch: %s' % line_without_comment)
+                warning_text = 'this line could not be parsed: %s' % line_without_comment
+                print("WARNING: %s" % warning_text)
+                #raise SyntaxError(warning_text)
 
     def _parse_value(self, variable_value_str):
         """
@@ -236,12 +239,23 @@ class Namelist():
             abbrev_list_match = self.abbrev_list_re.match(variable_value_str)
             if(abbrev_list_match):
                 parsed_value = int(abbrev_list_match.group(1)) * [self._parse_value(abbrev_list_match.group(2))]
-            elif(self.logical_true_re.match(variable_value_str)):
+            elif(self.logical_true_re.match(variable_value_str) and
+                 (variable_value_str.lower() in ['true','.true','.true.','t'] or not self.parse_strings_unqoted)):
                 parsed_value = True
-            elif(self.logical_false_re.match(variable_value_str)):
+                if(variable_value_str.lower() not in ['true','.true','.true.','t'] and not self.parse_strings_unqoted):
+                    print("WARNING: value %s was parsed to boolean %s" % (variable_value_str, parsed_value))
+            elif(self.logical_false_re.match(variable_value_str) and
+                 (variable_value_str.lower() in ['false','.false','.false.','f'] or not self.parse_strings_unqoted)):
                 parsed_value = False
+                if(variable_value_str.lower() not in ['false','.false','.false.','f'] and not self.parse_strings_unqoted):
+                    print("WARNING: value %s was parsed to boolean %s" % (variable_value_str, parsed_value))
             else:
-                raise SyntaxError('Right hand side expression could not be parsed. The string is: %s' % (variable_value_str))
+                quoted = "'" + variable_value_str.strip()+"'"
+                try:
+                    parsed_value = ast.literal_eval(quoted)
+                    print("WARNING: value %s was treated as %s" % (variable_value_str, quoted))
+                except:
+                    raise SyntaxError('Right hand side expression could not be parsed. The string is: %s' % (variable_value_str))
 
                 #FIXME distinguish complex scalar and a list of 2 reals
         try:
