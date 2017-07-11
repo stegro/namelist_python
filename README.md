@@ -44,7 +44,6 @@ Out[9]: 4.0
  - Tab-completion and variable assignment in interactive console
 
 ## Missing features
- - Parse arrays in index notation
  - Currently can't handle line continuations
  - Currently can't handle lines with several parameters
  - Comments are not kept, and so won't exist in output.
@@ -52,7 +51,6 @@ Out[9]: 4.0
 
 ## Contribute
 Please send any namelist files that don't parse correctly or fix the code
-yourself and send me a pull request :)
+yourself and send a pull request :)
 
-Thanks,
-Leif
+Thanks
