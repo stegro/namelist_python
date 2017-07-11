@@ -121,7 +121,7 @@ class Namelist():
         # may contain commas inside paretheses.
         # At the end of the line, the comma is optional.
         # FIXME strings containing parentheses will cause problems with this expression
-        array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[^,(\'\"]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?:,|,?\s*$)")
+        array_re = re.compile(r"(\s*(?:[0-9]+\*)?(?:[^,(\'\"]+|\'[^\']*\'|\"[^\']*\"|[(][^),]+,[^),]+[)])\s*)\s*(?: |,|,?\s*$)")
         self._complex_re = re.compile(r'\s*\([^,]+,[^,]+\)\s*')
 
         # a pattern to match the non-comment part of a line. This
@@ -140,7 +140,10 @@ class Namelist():
         self.abbrev_list_re = re.compile(r"\s*([0-9]+)\*(.+)\s*")
 
         # commas at the end of lines seem to be optional
-        keyval_line_re = re.compile(r"\s*(\w+)\s*=\s*(.*),?")
+        keyval_line_re = re.compile(r"\s*([\w\(\)]+)\s*=\s*(.*),?")
+
+        # detect index notation for arrays
+        array_index_notation_re = re.compile(r"\s*(\w+)\(([0-9])+\)\s*")
 
         current_group = None
         for line in input_str.split('\n'):
@@ -184,6 +187,19 @@ class Namelist():
                     variable_name = m.group(1)
                     variable_value = m.group(2)
 
+                    # check if this is in array index notation
+                    m_ind_notation = array_index_notation_re.match(variable_name)
+                    if(m_ind_notation):
+                        variable_name = m_ind_notation.group(1)
+                        # Fortran indexing is 1-based,
+                        # but used Python indexing here
+                        index = int(m_ind_notation.group(2))-1
+                        #print("index notation: %s %i" % (variable_name, index))
+                        if(variable_name not in current_group):
+                            current_group[variable_name] = (index+1)*[None]
+                        elif(len(current_group[variable_name]) <= index):
+                            current_group[variable_name].extend((index+1-len(current_group[variable_name]))*[None])
+
                     # parse the array with self-crafted regex
                     parsed_list = array_re.findall(variable_value)
                     parsed_list = [self._parse_value(elem) for elem in parsed_list]
@@ -195,12 +211,20 @@ class Namelist():
                     #parsed_value = ast.literal_eval(variable_value)
                     try:
                         if(len(parsed_list) == 1):
-                            current_group[variable_name] = parsed_list[0]
+                            if(m_ind_notation):
+                                current_group[variable_name][index] = parsed_list[0]
+                            else:
+                                current_group[variable_name] = parsed_list[0]
+                        else:
+                            if(m_ind_notation):
+                                current_group[variable_name][index] = parsed_list
+                            else:
+                                current_group[variable_name] = parsed_list
+                    except TypeError:
+                        if(m_ind_notation):
+                            current_group[variable_name][index] = parsed_list
                         else:
                             current_group[variable_name] = parsed_list
-                    except TypeError:
-                        current_group[variable_name] = parsed_list
-                    
                 else:
                     raise SyntaxError('Key %s encountered, but there is no enclosing namelist' % variable_name)
             else:
@@ -279,11 +303,12 @@ class Namelist():
                 lines.append("&%s" % group_name.upper())
                 for variable_name, variable_value in group.items():
                     if(isinstance(variable_value, list)):
-                        if array_inline:
+                        if(array_inline and None not in variable_value):
                             lines.append("%s= %s" % (variable_name, ", ".join([self._format_value(elem, float_format) for elem in variable_value])))
                         else:
                             for n, v in enumerate(variable_value):
-                                lines.append("%s(%d)= %s" % (variable_name, n+1, self._format_value(v, float_format)))
+                                if(v is not None):
+                                    lines.append("%s(%d)= %s" % (variable_name, n+1, self._format_value(v, float_format)))
                     else:
                         lines.append("%s=%s" % (variable_name, self._format_value(variable_value, float_format)))
                 lines.append("/")
@@ -327,7 +352,7 @@ class ParsingTests(unittest.TestCase):
     def test_single_value(self):
         input_str = """
         &CCFMSIM_SETUP
-        CCFMrad=800.0
+        ccfmrad=800.0
         /
         """
         namelist = Namelist(input_str)
@@ -339,7 +364,7 @@ class ParsingTests(unittest.TestCase):
     def test_multigroup(self):
         input_str = """
         &CCFMSIM_SETUP
-        CCFMrad=800.0
+        ccfmrad=800.0
         /
         &GROUP2
         R=500.0
@@ -356,11 +381,11 @@ class ParsingTests(unittest.TestCase):
         input_str = """
         ! Interesting comment at the start
         &CCFMSIM_SETUP
-        CCFMrad=800.0
+        ccfmrad=800.0
         ! And a comment some where in the middle
         /
         &GROUP2
-        R=500.0
+        r=500.0
         /
         """
         namelist = Namelist(input_str)
@@ -447,12 +472,12 @@ class ParsingTests(unittest.TestCase):
         input_str = """
         ! Interesting comment at the start
         &CCFMSIM_SETUP
-        CCFMrad=800.0
+        ccfmrad=800.0
         ! And a comment some where in the middle/halfway !
         var2=40
         /
         &GROUP2
-        R=500.0
+        r=500.0
         /
         """
         namelist = Namelist(input_str)
@@ -475,21 +500,21 @@ class ParsingTests(unittest.TestCase):
         !&BOGUS rko=1 /
         !
         &TTDATA
-        TTREAL =  1.,
-        TTINTEGER = 2,
-        TTCOMPLEX = (3.,4.),
-        TTCHAR = 'namelist',
-        TTBOOL = T/
+        ttreal =  1.,
+        ttinteger = 2,
+        ttcomplex = (3.,4.),
+        ttchar = 'namelist',
+        ttbool = T/
         &AADATA
-        AAREAL =  1.  1.  2.  3.,
-        AAINTEGER = 2 2 3 4,
-        AACOMPLEX = (3.,4.) (3.,4.) (5.,6.) (7.,7.),
-        AACHAR = 'namelist' 'namelist' 'array' ' the lot',
-        AABOOL = T T F F/
+        aareal =  1.  1.  2.  3.,
+        aainteger = 2 2 3 4,
+        aacomplex = (3.,4.) (3.,4.) (5.,6.) (7.,7.),
+        aachar = 'namelist' 'namelist' 'array' ' the lot',
+        aabool = T T F F/
         &XXDATA
-        XXREAL =  1.,
-        XXINTEGER = 2,
-        XXCOMPLEX = (3.,4.)/! can have blank lines and comments in the namelist input file
+        xxreal =  1.,
+        xxinteger = 2,
+        xxcomplex = (3.,4.)/! can have blank lines and comments in the namelist input file
         """
 
         expected_output = {
@@ -521,19 +546,22 @@ class ParsingTests(unittest.TestCase):
 class ParsingTests(unittest.TestCase):
     def test_single_value(self):
         input_str = """&CCFMSIM_SETUP
-CCFMrad=800.000000
-/"""
+ccfmrad=  8.00000e+02
+/
+"""
         namelist = Namelist(input_str)
 
         self.assertEqual(namelist.dump(), input_str)
 
     def test_multigroup(self):
         input_str = """&CCFMSIM_SETUP
-CCFMrad=800.000000
+ccfmrad=  8.00000e+02
 /
+
 &GROUP2
-R=500.000000
-/"""
+r=  5.00000e+02
+/
+"""
         namelist = Namelist(input_str)
 
         self.assertEqual(namelist.dump(), input_str)
@@ -541,30 +569,34 @@ R=500.000000
 
     def test_array(self):
         input_str = """&CCFMSIM_SETUP
-var_trac_picture(1)='watcnew'
-var_trac_picture(2)='watpnew'
-var_trac_picture(3)='icecnew'
-var_trac_picture(4)='granew'
-des_trac_picture(1)='cloud_water'
-des_trac_picture(2)='rain'
-des_trac_picture(3)='cloud_ice'
-des_trac_picture(4)='graupel'
-/"""
+var_trac_picture(1)= 'watcnew'
+var_trac_picture(2)= 'watpnew'
+var_trac_picture(3)= 'icecnew'
+var_trac_picture(4)= 'granew'
+des_trac_picture(1)= 'cloud_water'
+des_trac_picture(2)= 'rain'
+des_trac_picture(3)= 'cloud_ice'
+des_trac_picture(4)= 'graupel'
+/
+"""
         namelist = Namelist(input_str)
 
         self.assertEqual(namelist.dump(array_inline=False), input_str)
 
     def test_inline_array(self):
         input_str = """&AADATA
-AACOMPLEX= (3.000000,4.000000) (3.000000,4.000000) (5.000000,6.000000) (7.000000,7.000000)
-/"""
+aacomplex= (3.000000,4.000000) (3.000000,4.000000) (5.000000,6.000000) (7.000000,7.000000)
+bbcomplex= (  3.00000e+00,  4.00000e+00), (  3.00000e+00,  4.00000e+00), (  5.00000e+00,  6.00000e+00), (  7.00000e+00,  7.00000e+00)
+/
+"""
 
         namelist = Namelist(input_str)
-
-        print(input_str)
-        print(namelist.dump())
-
-        self.assertEqual(namelist.dump(), input_str)
+        expected_output = {
+            'aadata': {
+                'aacomplex': [complex(3.,4.),complex(3.,4.),complex(5.,6.),complex(7.,7.),],
+                'bbcomplex': [complex(3.,4.),complex(3.,4.),complex(5.,6.),complex(7.,7.),]
+            }}
+        self.assertEqual(dict(namelist.groups), expected_output)
 
 if __name__=='__main__':
     unittest.main()
