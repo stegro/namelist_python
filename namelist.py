@@ -312,7 +312,7 @@ class Namelist():
             for group in group_list:
                 lines.append("&%s" % group_name.upper())
                 for variable_name, variable_value in group.items():
-                    if(isinstance(variable_value, list)):
+                    if(isinstance(variable_value, list) or isinstance(variable_value, tuple)):
                         if(array_inline and None not in variable_value):
                             lines.append("%s= %s" % (variable_name, ", ".join([self._format_value(elem, float_format) for elem in variable_value])))
                         else:
