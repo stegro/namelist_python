@@ -612,5 +612,28 @@ bbcomplex= (  3.00000e+00,  4.00000e+00), (  3.00000e+00,  4.00000e+00), (  5.00
             }}
         self.assertEqual(dict(namelist.groups), expected_output)
 
+    def test_inline_array_dump(self):
+         input_str = """&DATA
+temp_coef=    1.00000000,   5.00000000,   0.18077700,   0.28930000,   0.01450000,
+dens_coef=2.00000000,3.00000000,4.18077700,5.28930000,6.01450000
+/
+"""
+         namelist = Namelist(input_str)
+         expected_output = {
+            'data': {
+                'temp_coef': [1.00000000,   5.00000000,   0.18077700,   0.28930000,   0.01450000,],
+                'dens_coef': [2.00000000,3.00000000,4.18077700,5.28930000,6.01450000]
+            }}
+         self.assertEqual(dict(namelist.groups), expected_output)
+
+         expected_output = """&DATA
+temp_coef=   1.00000e+00,   5.00000e+00,   1.80777e-01,   2.89300e-01,   1.45000e-02
+dens_coef=   2.00000e+00,   3.00000e+00,   4.18078e+00,   5.28930e+00,   6.01450e+00
+/
+"""
+
+         self.assertEqual(namelist.dump(), expected_output)
+
+
 if __name__=='__main__':
     unittest.main()
