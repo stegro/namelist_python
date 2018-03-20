@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 
 import unittest
 try:
@@ -81,6 +82,15 @@ class CaseInsensitiveDict(OrderedDict):
         for k in list(self.keys()):
             v = super(CaseInsensitiveDict, self).pop(k)
             self.__setitem__(k, v)
+    # def to_dict(self):
+    #     import copy
+    #     ret = {}
+    #     for k in self.keys():
+    #         if isinstance(self[k], CaseInsensitiveDict):
+    #             ret[k] = self[k].to_dict()
+    #         else:
+    #             ret[k] = copy.deepcopy(self[k])
+    #     return ret
 
 class Namelist():
     """
@@ -349,6 +359,11 @@ class Namelist():
         return AttributeMapper(self.groups)
 
 class ParsingTests(unittest.TestCase):
+
+    def __init__(self, methodName='runTest'):
+        super().__init__(methodName)
+        self.maxDiff = None
+
     def test_single_value(self):
         input_str = """
         &CCFMSIM_SETUP
@@ -357,7 +372,7 @@ class ParsingTests(unittest.TestCase):
         """
         namelist = Namelist(input_str)
 
-        expected_output = {'CCFMSIM_SETUP': { 'CCFMrad': 800. }}
+        expected_output = {'ccfmsim_setup': { 'ccfmrad': 800. }}
 
         self.assertEqual(namelist.groups, expected_output)
 
@@ -372,8 +387,8 @@ class ParsingTests(unittest.TestCase):
         """
         namelist = Namelist(input_str)
 
-        expected_output = {'CCFMSIM_SETUP': { 'CCFMrad': 800. },
-                           'GROUP2': { 'R': 500. }}
+        expected_output = {'ccfmsim_setup': { 'ccfmrad': 800. },
+                           'group2': { 'r': 500. }}
 
         self.assertEqual(namelist.groups, expected_output)
 
@@ -390,8 +405,8 @@ class ParsingTests(unittest.TestCase):
         """
         namelist = Namelist(input_str)
 
-        expected_output = {'CCFMSIM_SETUP': { 'CCFMrad': 800. },
-                           'GROUP2': { 'R': 500. }}
+        expected_output = {'ccfmsim_setup': { 'ccfmrad': 800. },
+                           'group2': { 'r': 500. }}
 
         self.assertEqual(namelist.groups, expected_output)
 
@@ -412,7 +427,7 @@ class ParsingTests(unittest.TestCase):
         namelist = Namelist(input_str)
 
         expected_output = {
-            'CCFMSIM_SETUP': {
+            'ccfmsim_setup': {
                 'ntrac_picture': 4,
                 'var_trac_picture': [
                     'watcnew',
@@ -438,7 +453,7 @@ class ParsingTests(unittest.TestCase):
         nz      =300
         zstart  =0.
         ztotal  =15000.
-        dzzoom  =50.
+        dzzoom  =50.012345e-15
         kcenter =20
         nztrans =0
         nztrans_boundary =6
@@ -452,11 +467,11 @@ class ParsingTests(unittest.TestCase):
         namelist = Namelist(input_str)
 
         expected_output = {
-            'ATHAM_SETUP': {
+            'atham_setup': {
                 'nz': 300,
                 'zstart': 0.,
                 'ztotal': 15000.,
-                'dzzoom': 50.,
+                'dzzoom': 50.012345e-15,
                 'kcenter': 20,
                 'nztrans': 0,
                 'nztrans_boundary': 6,
@@ -482,8 +497,8 @@ class ParsingTests(unittest.TestCase):
         """
         namelist = Namelist(input_str)
 
-        expected_output = {'CCFMSIM_SETUP': { 'CCFMrad': 800., 'var2': 40 },
-                           'GROUP2': { 'R': 500. }}
+        expected_output = {'ccfmsim_setup': { 'ccfmrad': 800., 'var2': 40 },
+                           'group2': { 'r': 500. }}
 
         self.assertEqual(namelist.groups, expected_output)
 
@@ -518,24 +533,24 @@ class ParsingTests(unittest.TestCase):
         """
 
         expected_output = {
-            'TTDATA': {
-                'TTREAL': 1.,
-                'TTINTEGER': 2,
-                'TTCOMPLEX': 3. + 4.j,
-                'TTCHAR': 'namelist',
-                'TTBOOL': True,
+            'ttdata': {
+                'ttreal': 1.,
+                'ttinteger': 2,
+                'ttcomplex': 3. + 4.j,
+                'ttchar': 'namelist',
+                'ttbool': true,
             },
-            'AADATA': {
-                'AAREAL': [1., 1., 2., 3.,],
-                'AAINTEGER': [2, 2, 3, 4],
-                'AACOMPLEX': [3.+4.j, 3.+4.j, 5.+6.j, 7.+7.j],
-                'AACHAR': ['namelist', 'namelist', 'array', ' the lot'],
-                'AABOOL': [True, True, False, False],
+            'aadata': {
+                'aareal': [1., 1., 2., 3.,],
+                'aainteger': [2, 2, 3, 4],
+                'aacomplex': [3.+4.j, 3.+4.j, 5.+6.j, 7.+7.j],
+                'aachar': ['namelist', 'namelist', 'array', ' the lot'],
+                'aabool': [True, True, False, False],
             },
-            'XXDATA': {
-                'XXREAL': 1.,
-                'XXINTEGER': 2.,
-                'XXCOMPLEX': 3.+4.j,
+            'xxdata': {
+                'xxreal': 1.,
+                'xxinteger': 2.,
+                'xxcomplex': 3.+4.j,
             },
         }
 
@@ -543,7 +558,6 @@ class ParsingTests(unittest.TestCase):
 
         self.assertEqual(dict(namelist.groups), expected_output)
 
-class ParsingTests(unittest.TestCase):
     def test_single_value(self):
         input_str = """&CCFMSIM_SETUP
 ccfmrad=  8.00000e+02
